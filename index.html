@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Índice UV - IPMA (Filtrado)</title>
+    <title>Índice UV - IPMA (Filtrado e Colorido)</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -82,6 +82,21 @@
             color: #d9534f;
             font-weight: bold;
         }
+        
+        /* === ESTILOS DE COR DE CÉLULA DO ÍNDICE UV === */
+        .uv-extremo { background-color: #8c53ee; color: white; font-weight: bold; } /* Extremo: Roxo */
+        .uv-muito-elevado { background-color: #dc3545; color: white; font-weight: bold; } /* Muito Elevado: Vermelho */
+        .uv-elevado { background-color: #fd7e14; color: white; font-weight: bold; } /* Elevado: Laranja */
+        .uv-moderado { background-color: #ffc107; color: #333; } /* Moderado: Amarelo */
+        .uv-baixo { background-color: #28a745; color: white; } /* Baixo: Verde */
+        .uv-indisponivel { background-color: #6c757d; color: white; } /* Indisponível: Cinzento */
+
+        /* Estilo para a célula que contém o valor */
+        .uv-cell {
+            text-align: center;
+            padding: 5px 10px; /* Reduz o padding para a célula do valor */
+            line-height: 1.5;
+        }
     </style>
 </head>
 <body>
@@ -119,7 +134,6 @@
         const API_URL_UV = 'https://api.ipma.pt/open-data/forecast/meteorology/uv/uv.json';
         const API_URL_LOCALITIES = 'https://api.ipma.pt/open-data/distrits-islands.json';
 
-        // Variáveis globais para armazenar os dados e o mapa de traduções
         let fullData = [];
         let localitiesMap = {};
 
@@ -130,7 +144,7 @@
             try {
                 return new Date(dateString).toLocaleDateString('pt-PT', options);
             } catch {
-                return dateString; // Retorna a string original se a data for inválida
+                return dateString;
             }
         }
 
@@ -145,6 +159,33 @@
             });
             return grouped;
         }
+
+        /**
+         * Retorna a classe CSS baseada no valor numérico do Índice UV.
+         */
+        function getUVClass(value) {
+            const num = parseFloat(value);
+
+            if (isNaN(num) || value === 'N/A' || num < 1) {
+                return 'uv-indisponivel';
+            }
+            if (num >= 11) {
+                return 'uv-extremo'; // 11+
+            }
+            if (num >= 8) {
+                return 'uv-muito-elevado'; // 8, 9, 10
+            }
+            if (num >= 6) {
+                return 'uv-elevado'; // 6, 7
+            }
+            if (num >= 3) {
+                return 'uv-moderado'; // 3, 4, 5
+            }
+            if (num >= 1) {
+                return 'uv-baixo'; // 1, 2
+            }
+            return 'uv-indisponivel'; // Fallback
+        }
         
         // --- FUNÇÕES DE FETCH ---
 
@@ -155,7 +196,6 @@
                 const json = await response.json();
                 
                 const map = {};
-                // A chave 'data' contém o array de localidades nesta API
                 json.data.forEach(item => {
                     map[item.globalIdLocal] = item.local;
                 });
@@ -169,26 +209,19 @@
 
         // --- FUNÇÕES DE FILTRAGEM E RENDERIZAÇÃO ---
 
-        /**
-         * Popula os dropdowns de filtro com as opções únicas de data e localidade.
-         */
         function populateFilters(data, map) {
             const dateSelect = document.getElementById('filter-date');
             const localitySelect = document.getElementById('filter-locality');
 
-            // 1. Coletar opções únicas
             const uniqueDates = new Set();
             const uniqueLocalities = new Set();
             
             data.forEach(item => {
                 if (item.data) uniqueDates.add(item.data);
-                
                 const localityName = map[item.globalIdLocal];
                 if (localityName) uniqueLocalities.add(localityName);
             });
 
-            // 2. Preencher o filtro de Datas
-            // Limpa as opções anteriores, exceto a primeira ('all')
             dateSelect.innerHTML = '<option value="all">Todas as Datas</option>'; 
             Array.from(uniqueDates).sort().forEach(date => {
                 const option = document.createElement('option');
@@ -197,7 +230,6 @@
                 dateSelect.appendChild(option);
             });
 
-            // 3. Preencher o filtro de Localidades
             localitySelect.innerHTML = '<option value="all">Todas as Localidades</option>';
             Array.from(uniqueLocalities).sort().forEach(name => {
                 const option = document.createElement('option');
@@ -207,10 +239,6 @@
             });
         }
         
-        /**
-         * Aplica os filtros e renderiza a tabela. Esta é a função que é chamada
-         * sempre que um filtro muda.
-         */
         function renderTable() {
             const selectedDate = document.getElementById('filter-date').value;
             const selectedLocality = document.getElementById('filter-locality').value;
@@ -236,7 +264,6 @@
 
             // 2. Agrupar os dados filtrados
             const groupedData = groupForecastsByDate(filteredData);
-            // Se um filtro de data foi aplicado, só teremos uma data aqui, o que é ideal.
             const sortedDates = Object.keys(groupedData).sort(); 
 
             // 3. Renderizar o HTML da Tabela
@@ -260,12 +287,21 @@
                     const intervaloHora = previsao.intervaloHora || 'Dia Completo';
                     const iuv = previsao.iUv !== null && previsao.iUv !== undefined ? previsao.iUv : 'N/A';
 
-                    if (nomeLocal === 'N/A' || iuv === 'N/A') return; // Ignora dados incompletos
+                    if (nomeLocal === 'N/A' || iuv === 'N/A') return;
 
                     const linha = corpoTabela.insertRow();
+                    
+                    // Coluna Hora
                     linha.insertCell().textContent = intervaloHora;
+                    
+                    // Coluna Localidade
                     linha.insertCell().textContent = nomeLocal; 
-                    linha.insertCell().textContent = iuv;
+                    
+                    // Coluna Índice UV (Aplicação da cor)
+                    const uvCell = linha.insertCell();
+                    uvCell.textContent = iuv;
+                    uvCell.classList.add('uv-cell');
+                    uvCell.classList.add(getUVClass(iuv)); // AQUI A MÁGICA ACONTECE
                     
                     linhasAdicionadas++;
                 });
@@ -279,15 +315,18 @@
         // --- SETUP PRINCIPAL ---
 
         async function setupApp() {
-            // Passo 1: Obter o mapa de localizações
+            // Inicializa a tabela com a mensagem de carregamento
+            document.getElementById('tabela-corpo').innerHTML = '<tr><td colspan="3" class="loading">A carregar mapa de localidades...</td></tr>';
+            
             localitiesMap = await fetchLocalitiesMap();
             if (Object.keys(localitiesMap).length === 0) {
                 document.getElementById('tabela-corpo').innerHTML = '<tr><td colspan="3" class="error-message">Erro ao carregar o mapa de localidades.</td></tr>';
                 return;
             }
 
-            // Passo 2: Obter os dados UV
             try {
+                document.getElementById('tabela-corpo').innerHTML = '<tr><td colspan="3" class="loading">A carregar dados de Índice UV...</td></tr>';
+
                 const respostaUV = await fetch(API_URL_UV);
                 if (!respostaUV.ok) throw new Error(`Erro HTTP: ${respostaUV.status}`);
                 
