@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Índice UV - IPMA (Organizado por Dia)</title>
+    <title>Índice UV - IPMA (Filtrado)</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -14,6 +14,32 @@
             color: #333;
             text-align: center;
         }
+        /* Estilo para a barra de filtros */
+        .filters-container {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 25px;
+            padding: 15px;
+            background-color: #e9ecef;
+            border-radius: 8px;
+            max-width: 900px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .filter-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        .filter-group select {
+            padding: 8px;
+            border: 1px solid #ced4da;
+            border-radius: 4px;
+            font-size: 1em;
+        }
         table {
             width: 95%;
             max-width: 900px;
@@ -22,9 +48,8 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             background-color: #fff;
         }
-        /* Estilo para as linhas de cabeçalho de Dia */
         .day-header {
-            background-color: #004a99; /* Azul escuro para destacar o dia */
+            background-color: #004a99;
             color: white;
             font-weight: bold;
             text-align: center !important;
@@ -63,6 +88,20 @@
 
     <h1>Previsão do Índice UV - IPMA</h1>
 
+    <div class="filters-container">
+        <div class="filter-group">
+            <label for="filter-date">Filtrar por Data:</label>
+            <select id="filter-date">
+                <option value="all">Todas as Datas</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="filter-locality">Filtrar por Localidade:</label>
+            <select id="filter-locality">
+                <option value="all">Todas as Localidades</option>
+            </select>
+        </div>
+    </div>
     <table id="tabela-uv">
         <thead>
             <tr>
@@ -80,20 +119,44 @@
         const API_URL_UV = 'https://api.ipma.pt/open-data/forecast/meteorology/uv/uv.json';
         const API_URL_LOCALITIES = 'https://api.ipma.pt/open-data/distrits-islands.json';
 
-        /**
-         * 1. Função para buscar a lista de localidades e criar um mapa de ID -> Nome.
-         * (Mantida da versão anterior)
-         */
+        // Variáveis globais para armazenar os dados e o mapa de traduções
+        let fullData = [];
+        let localitiesMap = {};
+
+        // --- FUNÇÕES DE UTILIDADE ---
+
+        function formatLocaleDate(dateString) {
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            try {
+                return new Date(dateString).toLocaleDateString('pt-PT', options);
+            } catch {
+                return dateString; // Retorna a string original se a data for inválida
+            }
+        }
+
+        function groupForecastsByDate(data) {
+            const grouped = {};
+            data.forEach(item => {
+                const date = item.data;
+                if (!grouped[date]) {
+                    grouped[date] = [];
+                }
+                grouped[date].push(item);
+            });
+            return grouped;
+        }
+        
+        // --- FUNÇÕES DE FETCH ---
+
         async function fetchLocalitiesMap() {
             try {
                 const response = await fetch(API_URL_LOCALITIES);
                 if (!response.ok) return {};
-                
                 const json = await response.json();
-                const localities = json.data; 
                 
                 const map = {};
-                localities.forEach(item => {
+                // A chave 'data' contém o array de localidades nesta API
+                json.data.forEach(item => {
                     map[item.globalIdLocal] = item.local;
                 });
                 return map;
@@ -104,113 +167,154 @@
             }
         }
 
+        // --- FUNÇÕES DE FILTRAGEM E RENDERIZAÇÃO ---
+
         /**
-         * 2. Função para agrupar os dados de previsão por Data.
-         * @param {Array} data - Array de previsões do uv.json.
-         * @returns {Object} Um objeto com as datas como chaves, e arrays de previsões como valores.
+         * Popula os dropdowns de filtro com as opções únicas de data e localidade.
          */
-        function groupForecastsByDate(data) {
-            const grouped = {};
+        function populateFilters(data, map) {
+            const dateSelect = document.getElementById('filter-date');
+            const localitySelect = document.getElementById('filter-locality');
+
+            // 1. Coletar opções únicas
+            const uniqueDates = new Set();
+            const uniqueLocalities = new Set();
+            
             data.forEach(item => {
-                const date = item.data; // Usa o campo 'data' como chave
-                if (!grouped[date]) {
-                    grouped[date] = [];
-                }
-                grouped[date].push(item);
+                if (item.data) uniqueDates.add(item.data);
+                
+                const localityName = map[item.globalIdLocal];
+                if (localityName) uniqueLocalities.add(localityName);
             });
-            return grouped;
+
+            // 2. Preencher o filtro de Datas
+            // Limpa as opções anteriores, exceto a primeira ('all')
+            dateSelect.innerHTML = '<option value="all">Todas as Datas</option>'; 
+            Array.from(uniqueDates).sort().forEach(date => {
+                const option = document.createElement('option');
+                option.value = date;
+                option.textContent = formatLocaleDate(date);
+                dateSelect.appendChild(option);
+            });
+
+            // 3. Preencher o filtro de Localidades
+            localitySelect.innerHTML = '<option value="all">Todas as Localidades</option>';
+            Array.from(uniqueLocalities).sort().forEach(name => {
+                const option = document.createElement('option');
+                option.value = name;
+                option.textContent = name;
+                localitySelect.appendChild(option);
+            });
         }
         
         /**
-         * 3. Função principal para carregar o mapa de localizações e os dados UV.
+         * Aplica os filtros e renderiza a tabela. Esta é a função que é chamada
+         * sempre que um filtro muda.
          */
-        async function carregarTabelaUV() {
+        function renderTable() {
+            const selectedDate = document.getElementById('filter-date').value;
+            const selectedLocality = document.getElementById('filter-locality').value;
             const corpoTabela = document.getElementById('tabela-corpo');
-            corpoTabela.innerHTML = '<tr><td colspan="3" class="loading">A carregar mapa de localidades...</td></tr>';
-
-            // Passo 1: Obter o mapa de localizações
-            const localitiesMap = await fetchLocalitiesMap();
-            const mapIsAvailable = Object.keys(localitiesMap).length > 0;
             
-            if (!mapIsAvailable) {
-                corpoTabela.innerHTML = '<tr><td colspan="3" class="error-message">Não foi possível carregar a lista de localidades para tradução.</td></tr>';
+            // 1. Filtrar os dados
+            let filteredData = fullData.filter(item => {
+                const itemDate = item.data;
+                const itemLocalityName = localitiesMap[item.globalIdLocal] || `ID: ${item.globalIdLocal}`;
+
+                const dateMatch = selectedDate === 'all' || itemDate === selectedDate;
+                const localityMatch = selectedLocality === 'all' || itemLocalityName === selectedLocality;
+
+                return dateMatch && localityMatch;
+            });
+
+            corpoTabela.innerHTML = ''; // Limpa a tabela
+
+            if (filteredData.length === 0) {
+                corpoTabela.innerHTML = '<tr><td colspan="3" class="error-message">Não foram encontrados dados para os filtros selecionados.</td></tr>';
                 return;
             }
 
-            // Mudar o estado para carregamento dos dados UV
-            corpoTabela.innerHTML = '<tr><td colspan="3" class="loading">A carregar dados de Índice UV...</td></tr>';
-            
-            try {
-                // Passo 2: Obter os dados UV
-                const respostaUV = await fetch(API_URL_UV);
-                if (!respostaUV.ok) {
-                    throw new Error(`Erro HTTP: ${respostaUV.status}. Não foi possível aceder à API UV.`);
-                }
+            // 2. Agrupar os dados filtrados
+            const groupedData = groupForecastsByDate(filteredData);
+            // Se um filtro de data foi aplicado, só teremos uma data aqui, o que é ideal.
+            const sortedDates = Object.keys(groupedData).sort(); 
+
+            // 3. Renderizar o HTML da Tabela
+            let linhasAdicionadas = 0;
+
+            sortedDates.forEach(date => {
+                const forecastsForDay = groupedData[date];
+
+                // Adicionar cabeçalho do dia
+                const headerRow = corpoTabela.insertRow();
+                headerRow.classList.add('day-header');
+                const headerCell = headerRow.insertCell();
+                headerCell.colSpan = 3; 
+                headerCell.textContent = formatLocaleDate(date).toUpperCase();
                 
-                const previsoes = await respostaUV.json(); 
-                
-                corpoTabela.innerHTML = ''; // Limpa o estado de carregamento
-
-                if (!Array.isArray(previsoes) || previsoes.length === 0) {
-                    corpoTabela.innerHTML = '<tr><td colspan="3" class="error-message">A API de UV não devolveu dados (Array vazio ou formato incorreto).</td></tr>';
-                    return;
-                }
-                
-                // Passo 3: Agrupar os dados
-                const groupedData = groupForecastsByDate(previsoes);
-                const sortedDates = Object.keys(groupedData).sort(); // Ordenar as datas
-
-                let linhasAdicionadas = 0;
-
-                // Passo 4: Construir a tabela, agrupando por data
-                sortedDates.forEach(date => {
-                    const forecastsForDay = groupedData[date];
-
-                    // Formatar a data para ser mais legível (Ex: 2025-09-28)
-                    const formattedDate = new Date(date).toLocaleDateString('pt-PT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-
-                    // Adicionar cabeçalho do dia
-                    const headerRow = corpoTabela.insertRow();
-                    headerRow.classList.add('day-header');
-                    const headerCell = headerRow.insertCell();
-                    headerCell.colSpan = 3; 
-                    headerCell.textContent = formattedDate.toUpperCase();
+                // Preencher as linhas
+                forecastsForDay.forEach(previsao => {
+                    const idLocal = previsao.globalIdLocal;
+                    const nomeLocal = localitiesMap[idLocal] || `ID: ${idLocal}`;
                     
-                    // Preencher as linhas para cada previsão nesse dia
-                    forecastsForDay.forEach(previsao => {
-                        const idLocal = previsao.globalIdLocal;
-                        const nomeLocal = localitiesMap[idLocal] || `ID: ${idLocal}`;
-                        
-                        // Campos de dados
-                        const intervaloHora = previsao.intervaloHora || 'Dia Completo';
-                        const iuv = previsao.iUv !== null && previsao.iUv !== undefined ? previsao.iUv : 'N/A';
+                    const intervaloHora = previsao.intervaloHora || 'Dia Completo';
+                    const iuv = previsao.iUv !== null && previsao.iUv !== undefined ? previsao.iUv : 'N/A';
 
-                        const linha = corpoTabela.insertRow();
-                        
-                        // Primeira coluna: Intervalo de Hora
-                        linha.insertCell().textContent = intervaloHora;
-                        
-                        // Segunda coluna: Localidade (Nome)
-                        linha.insertCell().textContent = nomeLocal; 
-                        
-                        // Terceira coluna: Índice UV
-                        linha.insertCell().textContent = iuv;
-                        
-                        linhasAdicionadas++;
-                    });
+                    if (nomeLocal === 'N/A' || iuv === 'N/A') return; // Ignora dados incompletos
+
+                    const linha = corpoTabela.insertRow();
+                    linha.insertCell().textContent = intervaloHora;
+                    linha.insertCell().textContent = nomeLocal; 
+                    linha.insertCell().textContent = iuv;
+                    
+                    linhasAdicionadas++;
                 });
+            });
 
-                if (linhasAdicionadas === 0) {
-                     corpoTabela.innerHTML = '<tr><td colspan="3" class="error-message">A API devolveu dados, mas nenhum registo continha informações úteis.</td></tr>';
-                }
-
-            } catch (erro) {
-                console.error('ERRO FATAL:', erro);
-                corpoTabela.innerHTML = `<tr><td colspan="3" class="error-message">ERRO: Falha ao carregar ou processar dados UV. Detalhe: ${erro.message}</td></tr>`;
+            if (linhasAdicionadas === 0) {
+                 corpoTabela.innerHTML = '<tr><td colspan="3" class="error-message">Os dados filtrados estão incompletos. Tente filtros mais abrangentes.</td></tr>';
             }
         }
 
-        document.addEventListener('DOMContentLoaded', carregarTabelaUV);
+        // --- SETUP PRINCIPAL ---
+
+        async function setupApp() {
+            // Passo 1: Obter o mapa de localizações
+            localitiesMap = await fetchLocalitiesMap();
+            if (Object.keys(localitiesMap).length === 0) {
+                document.getElementById('tabela-corpo').innerHTML = '<tr><td colspan="3" class="error-message">Erro ao carregar o mapa de localidades.</td></tr>';
+                return;
+            }
+
+            // Passo 2: Obter os dados UV
+            try {
+                const respostaUV = await fetch(API_URL_UV);
+                if (!respostaUV.ok) throw new Error(`Erro HTTP: ${respostaUV.status}`);
+                
+                fullData = await respostaUV.json(); 
+
+                if (!Array.isArray(fullData) || fullData.length === 0) {
+                    document.getElementById('tabela-corpo').innerHTML = '<tr><td colspan="3" class="error-message">A API UV não devolveu dados válidos.</td></tr>';
+                    return;
+                }
+
+                // Passo 3: Popular os filtros
+                populateFilters(fullData, localitiesMap);
+
+                // Passo 4: Adicionar event listeners aos filtros
+                document.getElementById('filter-date').addEventListener('change', renderTable);
+                document.getElementById('filter-locality').addEventListener('change', renderTable);
+                
+                // Passo 5: Renderizar a tabela pela primeira vez
+                renderTable();
+
+            } catch (erro) {
+                console.error('ERRO FATAL NO SETUP:', erro);
+                document.getElementById('tabela-corpo').innerHTML = `<tr><td colspan="3" class="error-message">Falha ao carregar os dados. Detalhe: ${erro.message}</td></tr>`;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', setupApp);
     </script>
 
 </body>
