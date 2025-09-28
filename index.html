@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Índice UV - IPMA</title>
+    <title>Índice UV - IPMA (Por Localidade)</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -15,8 +15,8 @@
             text-align: center;
         }
         table {
-            width: 90%;
-            max-width: 800px;
+            width: 95%;
+            max-width: 900px;
             margin: 20px auto;
             border-collapse: collapse;
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
@@ -59,7 +59,7 @@
         <thead>
             <tr>
                 <th>Data da Previsão</th>
-                <th>ID da Localidade</th>
+                <th>Localidade</th> 
                 <th>Índice UV Máximo (iUv)</th>
             </tr>
         </thead>
@@ -69,57 +69,108 @@
     </table>
 
     <script>
-        const API_URL = 'https://api.ipma.pt/open-data/forecast/meteorology/uv/uv.json';
+        // URLs das duas APIs
+        const API_URL_UV = 'https://api.ipma.pt/open-data/forecast/meteorology/uv/uv.json';
+        const API_URL_LOCALITIES = 'https://api.ipma.pt/open-data/distrits-islands.json';
 
+        /**
+         * 1. Função para buscar a lista de localidades e criar um mapa de ID -> Nome.
+         * @returns {Object} Mapa onde a chave é o globalIdLocal e o valor é o nome ('local').
+         */
+        async function fetchLocalitiesMap() {
+            try {
+                const response = await fetch(API_URL_LOCALITIES);
+                if (!response.ok) {
+                    console.error("Falha ao carregar a API de localidades.");
+                    return {}; // Retorna objeto vazio em caso de falha
+                }
+                const json = await response.json();
+                
+                // O array de localidades está dentro da chave 'data' nesta API
+                const localities = json.data; 
+                
+                const map = {};
+                localities.forEach(item => {
+                    // Mapeia o ID numérico para o nome da localidade
+                    map[item.globalIdLocal] = item.local;
+                });
+                return map;
+
+            } catch (error) {
+                console.error("Erro ao processar mapa de localidades:", error);
+                return {};
+            }
+        }
+
+        /**
+         * 2. Função principal para obter o mapa de localizações e os dados UV.
+         */
         async function carregarTabelaUV() {
             const corpoTabela = document.getElementById('tabela-corpo');
-            corpoTabela.innerHTML = '<tr><td colspan="3" class="loading">A carregar dados...</td></tr>';
+            corpoTabela.innerHTML = '<tr><td colspan="3" class="loading">A carregar mapa de localidades...</td></tr>';
 
+            // Passo 1: Obter o mapa de localizações
+            const localitiesMap = await fetchLocalitiesMap();
+            const mapIsAvailable = Object.keys(localitiesMap).length > 0;
+            
+            if (!mapIsAvailable) {
+                corpoTabela.innerHTML = '<tr><td colspan="3" class="error-message">Não foi possível carregar a lista de localidades para tradução dos códigos.</td></tr>';
+                return;
+            }
+
+            // Mudar o estado para carregamento dos dados UV
+            corpoTabela.innerHTML = '<tr><td colspan="3" class="loading">A carregar dados de Índice UV...</td></tr>';
+            
             try {
-                const resposta = await fetch(API_URL);
-                
-                if (!resposta.ok) {
-                    throw new Error(`Erro HTTP: ${resposta.status}. Não foi possível aceder à API.`);
+                // Passo 2: Obter os dados UV
+                const respostaUV = await fetch(API_URL_UV);
+                if (!respostaUV.ok) {
+                    throw new Error(`Erro HTTP: ${respostaUV.status}. Não foi possível aceder à API UV.`);
                 }
                 
-                // *** MUDANÇA CRUCIAL: O JSON completo é o array de previsões ***
-                // O JSON é um array, e não um objeto que contem o array.
-                const previsoes = await resposta.json(); 
+                // O JSON UV é um array diretamente (conforme confirmado)
+                const previsoes = await respostaUV.json(); 
                 
-                corpoTabela.innerHTML = ''; // Limpa o estado "A carregar"
+                corpoTabela.innerHTML = ''; // Limpa o estado de carregamento
 
                 if (!Array.isArray(previsoes) || previsoes.length === 0) {
-                    corpoTabela.innerHTML = '<tr><td colspan="3" class="error-message">Não foram encontrados dados de previsão (Array vazio ou formato incorreto).</td></tr>';
+                    corpoTabela.innerHTML = '<tr><td colspan="3" class="error-message">A API de UV não devolveu dados (Array vazio ou formato incorreto).</td></tr>';
                     return;
                 }
                 
                 let linhasAdicionadas = 0;
                 
+                // Passo 3: Criar a tabela com o nome da localidade
                 previsoes.forEach(previsao => {
-                    // *** NOMES DOS CAMPOS AJUSTADOS (usando 'data' e 'iUv') ***
+                    const idLocal = previsao.globalIdLocal;
+                    
+                    // Procura o nome da localidade no mapa
+                    const nomeLocal = localitiesMap[idLocal] || `ID: ${idLocal}`; // Se falhar, mostra o ID
+                    
                     const dataPrev = previsao.data ? previsao.data : 'N/A';
-                    const idLocal = previsao.globalIdLocal ? previsao.globalIdLocal : 'N/A';
                     const iuv = previsao.iUv !== null && previsao.iUv !== undefined ? previsao.iUv : 'N/A';
 
-                    // Opcional: Ignorar a linha se faltarem informações cruciais 
-                    if (dataPrev === 'N/A' && idLocal === 'N/A') {
-                        return;
+                    if (dataPrev === 'N/A') {
+                        return; // Ignora linhas sem data (assumidamente inválidas)
                     }
                     
                     const linha = corpoTabela.insertRow();
                     linha.insertCell().textContent = dataPrev;
-                    linha.insertCell().textContent = idLocal;
+                    
+                    // Insere o nome em vez do ID
+                    linha.insertCell().textContent = nomeLocal; 
+                    
                     linha.insertCell().textContent = iuv;
                     linhasAdicionadas++;
                 });
 
                 if (linhasAdicionadas === 0) {
-                     corpoTabela.innerHTML = '<tr><td colspan="3" class="error-message">A API devolveu dados, mas nenhum registo continha Data e Localidade.</td></tr>';
+                     corpoTabela.innerHTML = '<tr><td colspan="3" class="error-message">A API devolveu dados, mas nenhum registo continha informações úteis.</td></tr>';
                 }
 
             } catch (erro) {
                 console.error('ERRO FATAL:', erro);
-                corpoTabela.innerHTML = `<tr><td colspan="3" class="error-message">ERRO: Falha na comunicação. Verifique se o GitHub Pages está ativo. Detalhe: ${erro.message}</td></tr>`;
+                corpoTabela.innerHTML = `<tr><td colspan="3" class="error-message">ERRO: Falha ao carregar ou processar dados UV. Detalhe: ${erro.message}</td></tr>`;
             }
         }
 
