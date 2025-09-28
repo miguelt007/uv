@@ -1,1 +1,122 @@
-...
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Índice UV - IPMA</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f4f9;
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+        }
+        table {
+            width: 80%;
+            margin: 20px auto;
+            border-collapse: collapse;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            background-color: #fff;
+        }
+        th, td {
+            padding: 12px 15px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #007bff;
+            color: white;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        tr:nth-child(even) {
+            background-color: #f8f8f8;
+        }
+        tr:hover {
+            background-color: #e9e9e9;
+        }
+        .loading {
+            text-align: center;
+            font-size: 1.2em;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Previsão do Índice UV - IPMA</h1>
+
+    <table id="tabela-uv">
+        <thead>
+            <tr>
+                <th>Data da Previsão</th>
+                <th>ID da Localidade</th>
+                <th>Índice UV Máximo (iUV)</th>
+            </tr>
+        </thead>
+        <tbody id="tabela-corpo">
+            <tr><td colspan="3" class="loading">A carregar dados...</td></tr>
+        </tbody>
+    </table>
+
+    <script>
+        // URL da API
+        const API_URL = 'https://api.ipma.pt/open-data/forecast/meteorology/uv/uv.json';
+
+        /**
+         * Função assíncrona para obter os dados da API e preencher a tabela.
+         */
+        async function carregarTabelaUV() {
+            const corpoTabela = document.getElementById('tabela-corpo');
+
+            try {
+                // 1. Fazer a requisição à API
+                const resposta = await fetch(API_URL);
+                if (!resposta.ok) {
+                    throw new Error(`Erro HTTP: ${resposta.status}`);
+                }
+                
+                const dadosJson = await resposta.json();
+                
+                // 2. Limpar o indicador de "A carregar"
+                corpoTabela.innerHTML = '';
+                
+                // A estrutura de dados do IPMA geralmente coloca as informações dentro da chave 'data'
+                const previsoes = dadosJson.data;
+
+                if (!previsoes || previsoes.length === 0) {
+                    corpoTabela.innerHTML = '<tr><td colspan="3" style="text-align:center;">Não foram encontrados dados de previsão.</td></tr>';
+                    return;
+                }
+
+                // 3. Iterar sobre os dados e construir as linhas da tabela
+                previsoes.forEach(previsao => {
+                    const linha = corpoTabela.insertRow();
+                    
+                    // Nota: Assumimos que o JSON tem os campos 'dataPrev', 'globalIdLocal' e 'iUV',
+                    // que são comuns para esta API.
+                    
+                    const dataPrev = previsao.dataPrev || 'N/A';
+                    const idLocal = previsao.globalIdLocal || 'N/A';
+                    const iuv = previsao.iUV || 'N/A';
+                    
+                    linha.insertCell().textContent = dataPrev;
+                    linha.insertCell().textContent = idLocal;
+                    linha.insertCell().textContent = iuv;
+                });
+
+            } catch (erro) {
+                console.error('Erro ao carregar os dados da API:', erro);
+                corpoTabela.innerHTML = `<tr><td colspan="3" style="color:red; text-align:center;">Falha ao carregar os dados. Verifique a consola para mais detalhes.</td></tr>`;
+            }
+        }
+
+        // Chamar a função para carregar a tabela quando a página carregar
+        document.addEventListener('DOMContentLoaded', carregarTabelaUV);
+    </script>
+
+</body>
+</html>
