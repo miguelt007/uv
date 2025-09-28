@@ -60,7 +60,7 @@
             <tr>
                 <th>Data da Previsão</th>
                 <th>ID da Localidade</th>
-                <th>Índice UV Máximo (iUV)</th>
+                <th>Índice UV Máximo (iUv)</th>
             </tr>
         </thead>
         <tbody id="tabela-corpo">
@@ -71,12 +71,8 @@
     <script>
         const API_URL = 'https://api.ipma.pt/open-data/forecast/meteorology/uv/uv.json';
 
-        /**
-         * Função principal para carregar os dados e preencher a tabela.
-         */
         async function carregarTabelaUV() {
             const corpoTabela = document.getElementById('tabela-corpo');
-            // Mantém o estado "A carregar"
             corpoTabela.innerHTML = '<tr><td colspan="3" class="loading">A carregar dados...</td></tr>';
 
             try {
@@ -86,32 +82,27 @@
                     throw new Error(`Erro HTTP: ${resposta.status}. Não foi possível aceder à API.`);
                 }
                 
-                const dadosJson = await resposta.json();
-                
-                // Ponto de debug: Verifique na Consola (F12) se estes dados chegam.
-                console.log("Dados JSON recebidos:", dadosJson);
+                // *** MUDANÇA CRUCIAL: O JSON completo é o array de previsões ***
+                // O JSON é um array, e não um objeto que contem o array.
+                const previsoes = await resposta.json(); 
                 
                 corpoTabela.innerHTML = ''; // Limpa o estado "A carregar"
-                
-                const previsoes = dadosJson.data;
 
-                if (!previsoes || previsoes.length === 0) {
-                    corpoTabela.innerHTML = '<tr><td colspan="3" class="error-message">Não foram encontrados dados de previsão (Array ' + (previsoes ? 'vazio' : 'inexistente') + ').</td></tr>';
+                if (!Array.isArray(previsoes) || previsoes.length === 0) {
+                    corpoTabela.innerHTML = '<tr><td colspan="3" class="error-message">Não foram encontrados dados de previsão (Array vazio ou formato incorreto).</td></tr>';
                     return;
                 }
-
+                
                 let linhasAdicionadas = 0;
                 
-                // Itera sobre os dados
                 previsoes.forEach(previsao => {
-                    // Trata a possibilidade de um campo vir nulo, vazio, ou indefinido
-                    const dataPrev = previsao.dataPrev ? previsao.dataPrev : 'N/A';
+                    // *** NOMES DOS CAMPOS AJUSTADOS (usando 'data' e 'iUv') ***
+                    const dataPrev = previsao.data ? previsao.data : 'N/A';
                     const idLocal = previsao.globalIdLocal ? previsao.globalIdLocal : 'N/A';
-                    const iuv = previsao.iUV !== null && previsao.iUV !== undefined ? previsao.iUV : 'N/A';
+                    const iuv = previsao.iUv !== null && previsao.iUv !== undefined ? previsao.iUv : 'N/A';
 
-                    // Opcional: Ignorar a linha se faltarem informações cruciais (Exemplo: data e local)
+                    // Opcional: Ignorar a linha se faltarem informações cruciais 
                     if (dataPrev === 'N/A' && idLocal === 'N/A') {
-                        // console.log("Ignorando registo sem data ou local.");
                         return;
                     }
                     
@@ -128,7 +119,7 @@
 
             } catch (erro) {
                 console.error('ERRO FATAL:', erro);
-                corpoTabela.innerHTML = `<tr><td colspan="3" class="error-message">ERRO: Falha na comunicação. Verifique se o GitHub Pages está ativo e a Consola (F12). Detalhe: ${erro.message}</td></tr>`;
+                corpoTabela.innerHTML = `<tr><td colspan="3" class="error-message">ERRO: Falha na comunicação. Verifique se o GitHub Pages está ativo. Detalhe: ${erro.message}</td></tr>`;
             }
         }
 
