@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Índice UV - IPMA (Por Localidade)</title>
+    <title>Índice UV - IPMA (Organizado por Dia)</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -22,6 +22,14 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
             background-color: #fff;
         }
+        /* Estilo para as linhas de cabeçalho de Dia */
+        .day-header {
+            background-color: #004a99; /* Azul escuro para destacar o dia */
+            color: white;
+            font-weight: bold;
+            text-align: center !important;
+            font-size: 1.1em;
+        }
         th, td {
             padding: 12px 15px;
             text-align: left;
@@ -33,10 +41,10 @@
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
-        tr:nth-child(even) {
+        tr:nth-child(even):not(.day-header) {
             background-color: #f9f9f9;
         }
-        tr:hover {
+        tr:hover:not(.day-header) {
             background-color: #eef7ff;
         }
         .loading, .error-message {
@@ -58,8 +66,8 @@
     <table id="tabela-uv">
         <thead>
             <tr>
-                <th>Data da Previsão</th>
-                <th>Localidade</th> 
+                <th>Hora</th>
+                <th>Localidade</th>
                 <th>Índice UV Máximo (iUv)</th>
             </tr>
         </thead>
@@ -69,29 +77,23 @@
     </table>
 
     <script>
-        // URLs das duas APIs
         const API_URL_UV = 'https://api.ipma.pt/open-data/forecast/meteorology/uv/uv.json';
         const API_URL_LOCALITIES = 'https://api.ipma.pt/open-data/distrits-islands.json';
 
         /**
          * 1. Função para buscar a lista de localidades e criar um mapa de ID -> Nome.
-         * @returns {Object} Mapa onde a chave é o globalIdLocal e o valor é o nome ('local').
+         * (Mantida da versão anterior)
          */
         async function fetchLocalitiesMap() {
             try {
                 const response = await fetch(API_URL_LOCALITIES);
-                if (!response.ok) {
-                    console.error("Falha ao carregar a API de localidades.");
-                    return {}; // Retorna objeto vazio em caso de falha
-                }
-                const json = await response.json();
+                if (!response.ok) return {};
                 
-                // O array de localidades está dentro da chave 'data' nesta API
+                const json = await response.json();
                 const localities = json.data; 
                 
                 const map = {};
                 localities.forEach(item => {
-                    // Mapeia o ID numérico para o nome da localidade
                     map[item.globalIdLocal] = item.local;
                 });
                 return map;
@@ -103,7 +105,24 @@
         }
 
         /**
-         * 2. Função principal para obter o mapa de localizações e os dados UV.
+         * 2. Função para agrupar os dados de previsão por Data.
+         * @param {Array} data - Array de previsões do uv.json.
+         * @returns {Object} Um objeto com as datas como chaves, e arrays de previsões como valores.
+         */
+        function groupForecastsByDate(data) {
+            const grouped = {};
+            data.forEach(item => {
+                const date = item.data; // Usa o campo 'data' como chave
+                if (!grouped[date]) {
+                    grouped[date] = [];
+                }
+                grouped[date].push(item);
+            });
+            return grouped;
+        }
+        
+        /**
+         * 3. Função principal para carregar o mapa de localizações e os dados UV.
          */
         async function carregarTabelaUV() {
             const corpoTabela = document.getElementById('tabela-corpo');
@@ -114,7 +133,7 @@
             const mapIsAvailable = Object.keys(localitiesMap).length > 0;
             
             if (!mapIsAvailable) {
-                corpoTabela.innerHTML = '<tr><td colspan="3" class="error-message">Não foi possível carregar a lista de localidades para tradução dos códigos.</td></tr>';
+                corpoTabela.innerHTML = '<tr><td colspan="3" class="error-message">Não foi possível carregar a lista de localidades para tradução.</td></tr>';
                 return;
             }
 
@@ -128,7 +147,6 @@
                     throw new Error(`Erro HTTP: ${respostaUV.status}. Não foi possível aceder à API UV.`);
                 }
                 
-                // O JSON UV é um array diretamente (conforme confirmado)
                 const previsoes = await respostaUV.json(); 
                 
                 corpoTabela.innerHTML = ''; // Limpa o estado de carregamento
@@ -138,30 +156,48 @@
                     return;
                 }
                 
-                let linhasAdicionadas = 0;
-                
-                // Passo 3: Criar a tabela com o nome da localidade
-                previsoes.forEach(previsao => {
-                    const idLocal = previsao.globalIdLocal;
-                    
-                    // Procura o nome da localidade no mapa
-                    const nomeLocal = localitiesMap[idLocal] || `ID: ${idLocal}`; // Se falhar, mostra o ID
-                    
-                    const dataPrev = previsao.data ? previsao.data : 'N/A';
-                    const iuv = previsao.iUv !== null && previsao.iUv !== undefined ? previsao.iUv : 'N/A';
+                // Passo 3: Agrupar os dados
+                const groupedData = groupForecastsByDate(previsoes);
+                const sortedDates = Object.keys(groupedData).sort(); // Ordenar as datas
 
-                    if (dataPrev === 'N/A') {
-                        return; // Ignora linhas sem data (assumidamente inválidas)
-                    }
+                let linhasAdicionadas = 0;
+
+                // Passo 4: Construir a tabela, agrupando por data
+                sortedDates.forEach(date => {
+                    const forecastsForDay = groupedData[date];
+
+                    // Formatar a data para ser mais legível (Ex: 2025-09-28)
+                    const formattedDate = new Date(date).toLocaleDateString('pt-PT', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+                    // Adicionar cabeçalho do dia
+                    const headerRow = corpoTabela.insertRow();
+                    headerRow.classList.add('day-header');
+                    const headerCell = headerRow.insertCell();
+                    headerCell.colSpan = 3; 
+                    headerCell.textContent = formattedDate.toUpperCase();
                     
-                    const linha = corpoTabela.insertRow();
-                    linha.insertCell().textContent = dataPrev;
-                    
-                    // Insere o nome em vez do ID
-                    linha.insertCell().textContent = nomeLocal; 
-                    
-                    linha.insertCell().textContent = iuv;
-                    linhasAdicionadas++;
+                    // Preencher as linhas para cada previsão nesse dia
+                    forecastsForDay.forEach(previsao => {
+                        const idLocal = previsao.globalIdLocal;
+                        const nomeLocal = localitiesMap[idLocal] || `ID: ${idLocal}`;
+                        
+                        // Campos de dados
+                        const intervaloHora = previsao.intervaloHora || 'Dia Completo';
+                        const iuv = previsao.iUv !== null && previsao.iUv !== undefined ? previsao.iUv : 'N/A';
+
+                        const linha = corpoTabela.insertRow();
+                        
+                        // Primeira coluna: Intervalo de Hora
+                        linha.insertCell().textContent = intervaloHora;
+                        
+                        // Segunda coluna: Localidade (Nome)
+                        linha.insertCell().textContent = nomeLocal; 
+                        
+                        // Terceira coluna: Índice UV
+                        linha.insertCell().textContent = iuv;
+                        
+                        linhasAdicionadas++;
+                    });
                 });
 
                 if (linhasAdicionadas === 0) {
